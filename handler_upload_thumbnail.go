@@ -3,7 +3,10 @@ package main
 import (
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -31,10 +34,9 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-
 	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
 
-	// TODO: implement the upload here
+	// implement the upload here
 
 	if err := r.ParseMultipartForm(MaxUploadSize); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Error parsing form", err)
@@ -44,39 +46,52 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusBadRequest, "Error parsing form", err)
 		return
 	} else {
-		mediaType := fheader.Header["Content-Type"]
-		if data, err := io.ReadAll(file); err != nil {
-			respondWithError(w, http.StatusBadRequest, "Error parsing form", err)
+		mediaType, _, mediaError := mime.ParseMediaType(fheader.Header.Get("Content-Type"))
+		if mediaType != "image/png" && mediaType != "image/jpeg" || mediaError != nil {
+			respondWithError(w, http.StatusBadRequest, "Error parsing Content-Type", err)
+			return
+		}
+		reader := io.Reader(file)
+		//
+		if video, err := cfg.db.GetVideo(videoID); err != nil {
+			respondWithError(w, http.StatusBadRequest, "Video Not Found", err)
 			return
 		} else {
-			//
-			if video, err := cfg.db.GetVideo(videoID); err != nil {
-				respondWithError(w, http.StatusBadRequest, "Video Not Found", err)
+			if user, err := cfg.db.GetUser(userID); err != nil {
+				http.Error(w, "User Not Found", http.StatusBadRequest)
 				return
 			} else {
-				if user, err := cfg.db.GetUser(userID); err != nil {
-					http.Error(w, "User Not Found", http.StatusBadRequest)
+				if user.ID != video.UserID {
+					respondWithError(w, http.StatusUnauthorized, "Unauthorized", err)
+					return
+				}
+				// authorized
+				if extensions, err := mime.ExtensionsByType(mediaType); err != nil {
+					respondWithError(w, http.StatusBadRequest, "Error parsing mediaType", err)
 					return
 				} else {
-					if user.ID != video.UserID {
-						respondWithError(w, http.StatusUnauthorized, "Unauthorized", err)
+					filePath := filepath.Join("/", cfg.assetsRoot, videoIDString+extensions[0])
+					systemPath := filepath.Join(cfg.assetsRoot, videoIDString+extensions[0])
+					if localFile, err := os.Create(systemPath); err != nil {
+						respondWithError(w, http.StatusBadRequest, "error creating file", err)
 						return
-					}
-					// authorized
-					videoThumbnails[video.ID] = thumbnail{
-						data:      data,
-						mediaType: mediaType[0],
-					}
-					url := fmt.Sprintf("http://localhost:8091/api/thumbnails/%s", video.ID)
-					video.ThumbnailURL = &url
-					if err := cfg.db.UpdateVideo(video); err != nil {
-						respondWithError(w, http.StatusBadRequest, "Error saving video", err)
-						return
-					}
-					if vid, err := cfg.db.GetVideo(video.ID); err != nil {
-						respondWithError(w, http.StatusBadRequest, "Error saving video", err)
 					} else {
-						respondWithJSON(w, http.StatusOK, vid)
+						if _, err := io.Copy(localFile, reader); err != nil {
+							respondWithError(w, http.StatusBadRequest, "error copying file content", err)
+							return
+						} else {
+							video.ThumbnailURL = &filePath
+
+							if err := cfg.db.UpdateVideo(video); err != nil {
+								respondWithError(w, http.StatusBadRequest, "Error saving video", err)
+								return
+							}
+							if vid, err := cfg.db.GetVideo(video.ID); err != nil {
+								respondWithError(w, http.StatusBadRequest, "Error saving video", err)
+							} else {
+								respondWithJSON(w, http.StatusOK, vid)
+							}
+						}
 					}
 				}
 			}
