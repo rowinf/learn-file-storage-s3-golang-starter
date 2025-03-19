@@ -56,6 +56,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 			respondWithError(w, http.StatusBadRequest, "Error parsing Content-Type", err)
 			return
 		}
+		defer file.Close()
 		reader := io.Reader(file)
 		//
 		if video, err := cfg.db.GetVideo(videoID); err != nil {
