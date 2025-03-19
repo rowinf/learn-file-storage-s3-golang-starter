@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
@@ -12,7 +14,10 @@ import (
 	"github.com/google/uuid"
 )
 
-const MaxUploadSize = 10 << 20
+const (
+	MaxUploadSize = 10 << 20
+	urlRoot       = "http://localhost:8091/"
+)
 
 func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Request) {
 	videoIDString := r.PathValue("videoID")
@@ -70,8 +75,14 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 					respondWithError(w, http.StatusBadRequest, "Error parsing mediaType", err)
 					return
 				} else {
-					filePath := filepath.Join("/", cfg.assetsRoot, videoIDString+extensions[0])
-					systemPath := filepath.Join(cfg.assetsRoot, videoIDString+extensions[0])
+					key := make([]byte, 32)
+					rand.Read(key)
+					dst := make([]byte, base64.RawURLEncoding.EncodedLen(len(key)))
+					base64.RawURLEncoding.Encode(dst, key)
+					fileName := string(dst) + extensions[0]
+					// fileName := videoIDString + extensions[0]
+					filePath := urlRoot + filepath.Join(cfg.assetsRoot, fileName)
+					systemPath := filepath.Join(cfg.assetsRoot, fileName)
 					if localFile, err := os.Create(systemPath); err != nil {
 						respondWithError(w, http.StatusBadRequest, "error creating file", err)
 						return
