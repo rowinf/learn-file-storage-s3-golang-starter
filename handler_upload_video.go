@@ -1,15 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"mime"
 	"net/http"
 	"os"
+	"os/exec"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
@@ -66,24 +69,35 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 				respondWithError(w, http.StatusBadRequest, "Error parsing Content-Type", err)
 				return
 			}
-			f, err := os.CreateTemp("", "tubely-upload.mp4")
+			tempfile, err := os.CreateTemp("", "tubely-upload.mp4")
 			if err != nil {
 				log.Fatal(err)
 			}
-			defer os.Remove(f.Name())
+			defer os.Remove(tempfile.Name())
 			reader := io.Reader(file)
-			if _, err := io.Copy(f, reader); err != nil {
+			if _, err := io.Copy(tempfile, reader); err != nil {
 				log.Fatal(err)
 			}
-			f.Seek(0, io.SeekStart)
+			tempfile.Seek(0, io.SeekStart)
 			bucket := os.Getenv("S3_BUCKET")
 			key := make([]byte, 32)
 			rand.Read(key)
 			dst := make([]byte, base64.RawURLEncoding.EncodedLen(len(key)))
 			base64.RawURLEncoding.Encode(dst, key)
-			fileName := string(dst) + ".mp4"
+			aspectRatio, err := GetVideoAspectRatio(tempfile.Name())
+			if err != nil {
+				respondWithError(w, http.StatusBadRequest, "couldnt get aspect ratio", err)
+				return
+			}
+			prefix := "other"
+			if aspectRatio == "16:9" {
+				prefix = "landscape"
+			} else if aspectRatio == "9:16" {
+				prefix = "portrait"
+			}
+			fileName := prefix + "/" + string(dst) + ".mp4"
 			region := os.Getenv("S3_REGION")
-			input := s3.PutObjectInput{Bucket: &bucket, Key: &fileName, ContentType: &mediaType, Body: f}
+			input := s3.PutObjectInput{Bucket: &bucket, Key: &fileName, ContentType: &mediaType, Body: tempfile}
 			if _, err := cfg.s3Client.PutObject(context.Background(), &input); err != nil {
 				log.Fatal(err)
 			}
@@ -99,9 +113,32 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 			} else {
 				respondWithJSON(w, http.StatusOK, vid)
 			}
-			if err := f.Close(); err != nil {
+			if err := tempfile.Close(); err != nil {
 				log.Fatal(err)
 			}
 		}
 	}
+}
+
+type Aspect struct {
+	DisplayAspectRatio string `json:"display_aspect_ratio"`
+}
+
+type Results struct {
+	Streams []Aspect
+}
+
+func GetVideoAspectRatio(filepath string) (string, error) {
+	ratio := ""
+	cmd := exec.Command("ffprobe", "-v", "error", "-print_format", "json", "-show_streams", filepath)
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	if err := cmd.Run(); err != nil {
+		return ratio, err
+	}
+
+	var results Results
+	json.Unmarshal(buf.Bytes(), &results)
+	ratio = results.Streams[0].DisplayAspectRatio
+	return ratio, nil
 }
