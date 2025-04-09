@@ -123,12 +123,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 			if vid, err := cfg.db.GetVideo(video.ID); err != nil {
 				respondWithError(w, http.StatusBadRequest, "Error saving video", err)
 			} else {
-				presignedVideo, err := cfg.dbVideoToSignedVideo(vid)
-				if err != nil {
-					respondWithError(w, http.StatusBadRequest, "couldnt sign video url", err)
-					return
-				}
-				respondWithJSON(w, http.StatusOK, presignedVideo)
+				respondWithJSON(w, http.StatusOK, vid)
 			}
 			if err := tempfile.Close(); err != nil {
 				log.Fatal(err)
