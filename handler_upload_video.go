@@ -107,7 +107,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 			} else if aspectRatio == "9:16" {
 				prefix = "portrait"
 			}
-			fileName := bucket + "," + prefix + "/" + string(dst) + ".mp4"
+			fileName := prefix + "/" + string(dst) + ".mp4"
 			region := os.Getenv("S3_REGION")
 			input := s3.PutObjectInput{Bucket: &bucket, Key: &fileName, ContentType: &mediaType, Body: processedFile}
 			if _, err := cfg.s3Client.PutObject(context.Background(), &input); err != nil {
