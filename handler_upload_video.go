@@ -107,7 +107,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 			} else if aspectRatio == "9:16" {
 				prefix = "portrait"
 			}
-			fileName := prefix + "/" + string(dst) + ".mp4"
+			fileName := bucket + "," + prefix + "/" + string(dst) + ".mp4"
 			region := os.Getenv("S3_REGION")
 			input := s3.PutObjectInput{Bucket: &bucket, Key: &fileName, ContentType: &mediaType, Body: processedFile}
 			if _, err := cfg.s3Client.PutObject(context.Background(), &input); err != nil {
@@ -123,7 +123,12 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 			if vid, err := cfg.db.GetVideo(video.ID); err != nil {
 				respondWithError(w, http.StatusBadRequest, "Error saving video", err)
 			} else {
-				respondWithJSON(w, http.StatusOK, vid)
+				presignedVideo, err := cfg.dbVideoToSignedVideo(vid)
+				if err != nil {
+					respondWithError(w, http.StatusBadRequest, "couldnt sign video url", err)
+					return
+				}
+				respondWithJSON(w, http.StatusOK, presignedVideo)
 			}
 			if err := tempfile.Close(); err != nil {
 				log.Fatal(err)

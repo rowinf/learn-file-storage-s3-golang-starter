@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
+	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -26,6 +30,37 @@ type apiConfig struct {
 	s3CfDistribution string
 	port             string
 	s3Client         *s3.Client
+}
+
+func generatePresignedURL(s3Client *s3.Client, bucket string, key string, expireTime time.Duration) (string, error) {
+	presign := s3.NewPresignClient(s3Client)
+	opts := s3.WithPresignExpires(expireTime)
+	params := s3.GetObjectInput{Bucket: &bucket, Key: &key}
+	presignedGet, err := presign.PresignGetObject(context.Background(), &params, opts)
+	if err != nil {
+		return "", err
+	}
+	return presignedGet.URL, nil
+}
+
+func (cfg *apiConfig) dbVideoToSignedVideo(video database.Video) (database.Video, error) {
+	if video.VideoURL == nil {
+		return video, nil
+	}
+	parts := strings.Split(*video.VideoURL, ",")
+	fmt.Println(parts)
+	bucketUrl, err := url.Parse(parts[0])
+	if err != nil {
+		return video, err
+	}
+	bucket := path.Base(bucketUrl.Path)
+	key := bucket + "," + parts[1]
+	presignedURL, err := generatePresignedURL(cfg.s3Client, bucket, key, time.Duration(5*time.Minute))
+	if err != nil {
+		return video, err
+	}
+	video.VideoURL = &presignedURL
+	return video, nil
 }
 
 type thumbnail struct {
