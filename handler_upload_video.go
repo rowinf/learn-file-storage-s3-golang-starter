@@ -108,13 +108,12 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 				prefix = "portrait"
 			}
 			fileName := prefix + "/" + string(dst) + ".mp4"
-			region := os.Getenv("S3_REGION")
 			input := s3.PutObjectInput{Bucket: &bucket, Key: &fileName, ContentType: &mediaType, Body: processedFile}
 			if _, err := cfg.s3Client.PutObject(context.Background(), &input); err != nil {
 				log.Fatal(err)
 			}
 
-			url := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", bucket, region, fileName)
+			url := fmt.Sprintf("https://%s.cloudfront.net/%s", cfg.s3CfDistribution, fileName)
 			video.VideoURL = &url
 			if err := cfg.db.UpdateVideo(video); err != nil {
 				respondWithError(w, http.StatusBadRequest, "Error saving video", err)
